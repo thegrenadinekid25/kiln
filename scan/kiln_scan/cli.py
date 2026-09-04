@@ -47,6 +47,7 @@ from .backfill import done_log_path as backfill_log_path
 from .backfill import pending_jobs, run_job
 from .cmr import PRODUCTS, find_daily_granule, product_info
 from .download import DownloadError, download_granule
+from .full_rewind import DEFAULT_START, full_range_jobs, run_full_rewind
 from .grid import AlltimeGrid
 from .science import Candidate, day_maximum, prepare_day, select_candidates
 from .store import (
@@ -85,7 +86,7 @@ DEFAULT_TOP_N = 20
 # hold a record.
 DEFAULT_WORKLIST_BAR_C = 60.0
 
-SUBCOMMANDS = ("scan", "summarize", "worklist", "backfill")
+SUBCOMMANDS = ("scan", "summarize", "worklist", "backfill", "rewind")
 
 
 # --- Argument types -----------------------------------------------------------------
@@ -643,6 +644,38 @@ def run_backfill(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- Full rewind --------------------------------------------------------------------
+
+
+def run_rewind(args: argparse.Namespace) -> int:
+    ingest_dir = Path(args.ingest_dir)
+    python = Path(args.ingest_python)
+    if not python.exists():
+        LOG.error(
+            "no ingest interpreter at %s; point --ingest-python at the "
+            "pipeline's venv",
+            python,
+        )
+        return 1
+
+    start = args.start or DEFAULT_START
+    end = args.end or datetime.now(timezone.utc).date()
+    jobs = full_range_jobs(start, end)
+    LOG.info("full rewind: %s..%s is %d day(s)", start.isoformat(), end.isoformat(), len(jobs))
+
+    return run_full_rewind(
+        jobs,
+        python=python,
+        ingest_dir=ingest_dir,
+        work_dir=Path(args.work_dir),
+        tiles_dir=Path(args.tiles_dir),
+        workers=args.workers,
+        s3_direct=args.s3_direct,
+        max_granules=args.max_granules,
+        limit=args.limit,
+    )
+
+
 # --- Parser -------------------------------------------------------------------------
 
 
@@ -834,7 +867,64 @@ def build_parser() -> argparse.ArgumentParser:
         help="the ingest venv interpreter (default %(default)s)",
     )
 
-    for sub in (scan, summarize, worklist, backfill):
+    rewind = subparsers.add_parser(
+        "rewind",
+        help="full daily rewind: one whole-globe snapshot per day of the record",
+    )
+    rewind.add_argument(
+        "--start",
+        type=iso_date,
+        default=None,
+        help=f"first day, YYYY-MM-DD (default {DEFAULT_START.isoformat()}, the record start)",
+    )
+    rewind.add_argument(
+        "--end",
+        type=iso_date,
+        default=None,
+        help="last day, YYYY-MM-DD (default: today UTC)",
+    )
+    rewind.add_argument(
+        "--work-dir", required=True, help="where the rewind's done-log lives"
+    )
+    rewind.add_argument(
+        "--tiles-dir", required=True, help="where each day's staged readings/anomalies land"
+    )
+    rewind.add_argument(
+        "--workers",
+        type=positive_int,
+        default=8,
+        help="concurrent days in flight (default %(default)s)",
+    )
+    rewind.add_argument(
+        "--s3-direct",
+        action="store_true",
+        help="pass --s3-direct to the ingest CLI (only helps from AWS us-west-2; "
+        "safe elsewhere, see the ingest CLI's own --help)",
+    )
+    rewind.add_argument(
+        "--limit",
+        type=positive_int,
+        default=None,
+        help="stop after this many pending days",
+    )
+    rewind.add_argument(
+        "--max-granules",
+        type=positive_int,
+        default=None,
+        help="cap granules per product per day; passed straight to the ingest CLI",
+    )
+    rewind.add_argument(
+        "--ingest-dir",
+        default=str(DEFAULT_INGEST_DIR),
+        help="the ingest checkout to run in (default %(default)s)",
+    )
+    rewind.add_argument(
+        "--ingest-python",
+        default=str(DEFAULT_INGEST_PYTHON),
+        help="the ingest venv interpreter (default %(default)s)",
+    )
+
+    for sub in (scan, summarize, worklist, backfill, rewind):
         sub.add_argument(
             "--verbose", action="store_true", help="log at DEBUG instead of INFO"
         )
@@ -880,6 +970,8 @@ def main(argv: list[str] | None = None) -> int:
         # inherits. Checking for them here would duplicate its rules and go
         # stale; letting it refuse in its own words is more honest.
         return run_backfill(args)
+    if args.command == "rewind":
+        return run_rewind(args)
 
     token = os.environ.get("EARTHDATA_TOKEN", "")
     if not token:

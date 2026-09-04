@@ -120,6 +120,27 @@ def test_an_unknown_product_is_refused():
         ingest_command(PYTHON, date(2019, 7, 15), "MOD11C1", [LUT])
 
 
+def test_global_fetch_is_allowed_with_no_boxes():
+    command = ingest_command(
+        PYTHON, date(2019, 7, 15), "MOD11_L2", [], global_fetch=True
+    )
+    assert "--bbox" not in " ".join(command)
+
+
+def test_global_fetch_with_boxes_is_refused():
+    with pytest.raises(ValueError, match="global_fetch"):
+        ingest_command(PYTHON, date(2019, 7, 15), "MOD11_L2", [LUT], global_fetch=True)
+
+
+def test_s3_direct_is_passed_through_only_when_asked():
+    without = ingest_command(PYTHON, date(2019, 7, 15), "MOD11_L2", [LUT])
+    with_flag = ingest_command(
+        PYTHON, date(2019, 7, 15), "MOD11_L2", [LUT], s3_direct=True
+    )
+    assert "--s3-direct" not in without
+    assert "--s3-direct" in with_flag
+
+
 # --- Running a job ------------------------------------------------------------------
 
 

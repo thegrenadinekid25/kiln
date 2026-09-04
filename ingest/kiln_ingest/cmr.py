@@ -30,6 +30,19 @@ def _host_allowed(href: str) -> bool:
     host = (urlparse(href).hostname or "").lower()
     return host == "nasa.gov" or host.endswith(_GRANULE_HOST_SUFFIX)
 
+
+# The archive's direct-S3 links (verified against a real CMR response on
+# 2026-09-03) live in these two buckets. Same defense-in-depth reasoning as
+# ``_host_allowed``: CMR is trusted today, but an s3:// link is a bucket/key
+# pair handed straight to boto3, and this keeps a malformed or unexpected
+# response from turning into a fetch against an arbitrary bucket.
+_S3_BUCKET_ALLOWLIST = frozenset({"lp-prod-protected", "lp-prod-public"})
+
+
+def _s3_link_allowed(href: str) -> bool:
+    parsed = urlparse(href)
+    return parsed.scheme == "s3" and parsed.netloc in _S3_BUCKET_ALLOWLIST
+
 # Near-real-time provider, for the daily run. LANCE publishes within about
 # three hours of observation and keeps only the recent past.
 NRT_PROVIDER = "LANCEMODIS"
@@ -86,6 +99,10 @@ class GranuleRef:
     granule_id: str
     url: str
     observed_at: str
+    # Set only for archive-provider (LPCLOUD) granules that carry a direct-S3
+    # link; None for LANCE NRT granules, which are not cloud-hosted this way.
+    # A caller with in-region AWS credentials may use this instead of ``url``.
+    s3_url: str | None = None
 
 
 def satellite_for_product(product: str) -> str:
@@ -247,6 +264,29 @@ def _data_links(entry: Mapping[str, Any]) -> list[str]:
     return links
 
 
+def _s3_data_links(entry: Mapping[str, Any]) -> list[str]:
+    """Direct-S3 data links on a CMR entry, same filtering as ``_data_links``.
+
+    Only the archive provider publishes these (verified 2026-09-03: LANCE NRT
+    entries carry no ``s3#`` rel at all), so this returns an empty list for a
+    near-real-time entry rather than raising.
+    """
+    links = []
+    for link in entry.get("links", []) or []:
+        if link.get("inherited"):
+            continue
+        rel = str(link.get("rel", ""))
+        href = str(link.get("href", ""))
+        if not rel.endswith("/data#") and not rel.endswith("/s3#"):
+            continue
+        if not href.lower().endswith(".hdf"):
+            continue
+        if not _s3_link_allowed(href):
+            continue
+        links.append(href)
+    return links
+
+
 def parse_granule_entries(feed: Mapping[str, Any]) -> list[GranuleRef]:
     """Turn a CMR granules.json body into downloadable granule references.
 
@@ -269,7 +309,15 @@ def parse_granule_entries(feed: Mapping[str, Any]) -> list[GranuleRef]:
         observed_at = str(entry.get("time_start") or entry.get("updated") or "")
         if not observed_at:
             continue
-        refs.append(GranuleRef(granule_id=granule_id, url=links[0], observed_at=observed_at))
+        s3_links = _s3_data_links(entry)
+        refs.append(
+            GranuleRef(
+                granule_id=granule_id,
+                url=links[0],
+                observed_at=observed_at,
+                s3_url=s3_links[0] if s3_links else None,
+            )
+        )
     return refs
 
 
@@ -285,17 +333,19 @@ def dedupe_granules(refs: Sequence[GranuleRef]) -> list[GranuleRef]:
     return out
 
 
-def time_key_map(refs: Sequence[GranuleRef]) -> dict[str, str]:
-    """Overpass stamp -> download URL, for pairing one product against another.
+def time_key_map(refs: Sequence[GranuleRef]) -> dict[str, GranuleRef]:
+    """Overpass stamp -> granule ref, for pairing one product against another.
 
-    Names without a parseable stamp are skipped; nothing can be paired with them
-    anyway.
+    The whole ref is kept, not just its URL, so a fire mask fetched through
+    this map can still use ``s3_url`` when the caller has direct-S3 access.
+    Names without a parseable stamp are skipped; nothing can be paired with
+    them anyway.
     """
-    mapping: dict[str, str] = {}
+    mapping: dict[str, GranuleRef] = {}
     for ref in refs:
         key = granule_time_key(ref.granule_id)
         if key is not None:
-            mapping.setdefault(key, ref.url)
+            mapping.setdefault(key, ref)
     return mapping
 
 

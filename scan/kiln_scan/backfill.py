@@ -105,6 +105,8 @@ def ingest_command(
     dry_run: bool = False,
     max_granules: int | None = None,
     tiles_dir: Path | None = None,
+    global_fetch: bool = False,
+    s3_direct: bool = False,
 ) -> list[str]:
     """The exact argv for one ingest run.
 
@@ -123,9 +125,19 @@ def ingest_command(
     raster pyramid to ``out-tiles/`` relative to its own working directory, so
     without it a backfill scribbles its scratch output into the daily
     pipeline's checkout instead of its own work directory.
+
+    ``global_fetch`` is the full daily rewind's job shape: every day needs a
+    whole-globe snapshot, not a refinement of specific hot cells, so it is the
+    one caller allowed to omit every ``--bbox``. A refinement job with no boxes
+    is still always a bug in whatever built the worklist -- that guard stays in
+    place for ``global_fetch=False``, which is every other caller.
     """
-    if not bboxes:
+    if not bboxes and not global_fetch:
         raise ValueError(f"job {day.isoformat()} has no bounding boxes to fetch")
+    if bboxes and global_fetch:
+        raise ValueError(
+            f"job {day.isoformat()} is global_fetch but was also given bounding boxes"
+        )
     if product is not None and product not in INGEST_PRODUCTS:
         raise ValueError(
             f"unknown ingest product {product!r}; expected one of {list(INGEST_PRODUCTS)}"
@@ -153,6 +165,8 @@ def ingest_command(
         command.append("--dry-run")
     if tiles_dir is not None:
         command.extend(["--tiles-dir", str(tiles_dir)])
+    if s3_direct:
+        command.append("--s3-direct")
     return command
 
 
@@ -257,6 +271,8 @@ def run_job(
     tiles_dir: Path | None = None,
     products: Sequence[str] = INGEST_PRODUCTS,
     runner: Callable[..., Any] = subprocess.run,
+    global_fetch: bool = False,
+    s3_direct: bool = False,
 ) -> JobResult:
     """Run the ingest CLI once per product for one job, sequentially.
 
@@ -300,6 +316,8 @@ def run_job(
             dry_run=dry_run,
             max_granules=max_granules,
             tiles_dir=tiles_dir,
+            global_fetch=global_fetch,
+            s3_direct=s3_direct,
         )
         LOG.debug("running: %s", " ".join(command))
         try:

@@ -57,7 +57,7 @@ from .cmr import (
     search_granules,
     time_key_map,
 )
-from .download import download_granule
+from .download import S3Fetcher, download_granule_auto
 from .science import (
     CORROBORATION_THRESHOLD_C,
     CORROBORATION_TOLERANCE_K,
@@ -274,6 +274,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging verbosity. Default INFO.",
     )
+    parser.add_argument(
+        "--s3-direct",
+        action="store_true",
+        help="Try direct-S3 downloads from the archive before HTTPS. Only actually "
+        "works from AWS us-west-2 with an Earthdata token; safe to pass anywhere "
+        "else, since it self-disables after one failed attempt and falls back to "
+        "HTTPS for the rest of the run.",
+    )
     return parser
 
 
@@ -343,8 +351,8 @@ def check_earthdata_token(token: str, now: datetime) -> bool:
 
 def discover_fire_granules(
     session, product: str, target: date, discovery: Discovery | None = None
-) -> dict[str, str]:
-    """Overpass stamp -> active-fire granule URL for the day.
+) -> dict[str, GranuleRef]:
+    """Overpass stamp -> active-fire granule ref for the day.
 
     Returns an empty map if discovery fails. A day without fire granules is a
     day of unchecked tiles, which the qc_note says out loud; it is never a
@@ -374,9 +382,10 @@ def fire_exclusion_for(
     session,
     token: str,
     workdir: Path,
-    fire_urls: dict[str, str] | None,
+    fire_urls: dict[str, GranuleRef] | None,
     granule_id: str,
     read_fire: Callable[[Path], tuple[np.ndarray, np.ndarray]],
+    s3_fetcher: S3Fetcher | None = None,
 ) -> tuple[np.ndarray | None, str]:
     """Fire bin keys for one overpass, plus the qc_note its tiles should carry.
 
@@ -388,14 +397,16 @@ def fire_exclusion_for(
         return None, QC_NOTE
 
     key = granule_time_key(granule_id)
-    url = fire_urls.get(key) if key is not None else None
-    if url is None:
+    ref = fire_urls.get(key) if key is not None else None
+    if ref is None:
         LOG.warning("no active-fire granule matches %s; ingesting it unmasked", granule_id)
         return None, QC_NOTE + FIRE_UNAVAILABLE_NOTE
 
-    destination = workdir / f"fire_{Path(url).name}"
+    destination = workdir / f"fire_{Path(ref.url).name}"
     try:
-        download_granule(session, url, destination, token, attempts=FIRE_DOWNLOAD_ATTEMPTS)
+        download_granule_auto(
+            session, ref, destination, token, s3_fetcher=s3_fetcher, attempts=FIRE_DOWNLOAD_ATTEMPTS
+        )
         fire_lat, fire_lon = read_fire(destination)
         return fire_exclusion_keys(fire_lat, fire_lon), QC_NOTE
     except Exception as exc:  # noqa: BLE001 - a missing mask never fails a granule
@@ -409,10 +420,11 @@ def build_reducer(
     session,
     token: str,
     workdir: Path,
-    fire_urls: dict[str, str] | None,
+    fire_urls: dict[str, GranuleRef] | None,
     raster_store: raster.TileStore | None,
     anomaly_sink: dict[tuple[int, int, str], Anomaly] | None = None,
     volcanic_sources: Sequence[VolcanicSource] | None = None,
+    s3_fetcher: S3Fetcher | None = None,
 ) -> GranuleReducer:
     """The granule reducer that applies the masks and feeds the raster.
 
@@ -434,7 +446,7 @@ def build_reducer(
         path: Path, granule_id: str, observed_at: str
     ) -> dict[tuple[int, int], TileMax]:
         exclusion, qc_note = fire_exclusion_for(
-            session, token, workdir, fire_urls, granule_id, read_fire_granule
+            session, token, workdir, fire_urls, granule_id, read_fire_granule, s3_fetcher=s3_fetcher
         )
         reduction = granule_reduction(
             path,
@@ -465,6 +477,7 @@ def process_granules(
     token: str,
     workdir: Path,
     reduce_granule: GranuleReducer | None = None,
+    s3_fetcher: S3Fetcher | None = None,
 ) -> tuple[dict[tuple[int, int], TileMax], int]:
     """Download, reduce and discard granules one at a time.
 
@@ -487,7 +500,7 @@ def process_granules(
     for index, ref in enumerate(refs, start=1):
         destination = workdir / f"{index:05d}_{Path(ref.url).name}"
         try:
-            download_granule(session, ref.url, destination, token)
+            download_granule_auto(session, ref, destination, token, s3_fetcher=s3_fetcher)
             tiles = reduce_granule(destination, ref.granule_id, ref.observed_at)
             merge_tile_maxima(accumulator, tiles)
             processed += 1
@@ -531,6 +544,7 @@ def run_product(
     fire_masking: bool = False,
     discovery: Discovery | None = None,
     resolver: geocode.PlaceNameResolver | None = None,
+    s3_fetcher: S3Fetcher | None = None,
 ) -> ProductResult:
     """Ingest one product's day into lst_readings.
 
@@ -582,9 +596,10 @@ def run_product(
                     fire_urls,
                     None if day is None else day.raster,
                     None if day is None else day.anomalies.setdefault(product, {}),
+                    s3_fetcher=s3_fetcher,
                 )
             accumulator, granules_processed = process_granules(
-                session, refs, token, workdir, reduce_granule
+                session, refs, token, workdir, reduce_granule, s3_fetcher=s3_fetcher
             )
 
         if granules_processed == 0:
@@ -1279,6 +1294,7 @@ def main(argv: list[str] | None = None) -> int:
 
     results: list[ProductResult] = []
     with requests.Session() as session:
+        s3_fetcher = S3Fetcher(session, token) if args.s3_direct else None
         for product in products:
             try:
                 results.append(
@@ -1294,6 +1310,7 @@ def main(argv: list[str] | None = None) -> int:
                         fire_masking=True,
                         discovery=discovery,
                         resolver=resolver,
+                        s3_fetcher=s3_fetcher,
                     )
                 )
             except Exception as exc:  # noqa: BLE001 - e.g. Supabase down before the run row exists

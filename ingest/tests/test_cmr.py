@@ -94,6 +94,66 @@ def test_parse_extracts_id_url_and_time():
     assert refs[0].observed_at == "2026-08-30T11:25:00.000Z"
 
 
+def test_parse_extracts_the_direct_s3_link_when_present():
+    feed = {"feed": {"entry": [
+        entry(
+            "MOD11_L2.A2020196.2355.061.2021012205841.hdf",
+            "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/"
+            "MOD11_L2.061/x/MOD11_L2.A2020196.2355.061.2021012205841.hdf",
+            links=[
+                {
+                    "rel": "http://esipfed.org/ns/fedsearch/1.1/data#",
+                    "href": "https://data.lpdaac.earthdatacloud.nasa.gov/lp-prod-protected/"
+                    "MOD11_L2.061/x/MOD11_L2.A2020196.2355.061.2021012205841.hdf",
+                },
+                {
+                    "rel": "http://esipfed.org/ns/fedsearch/1.1/s3#",
+                    "href": "s3://lp-prod-protected/MOD11_L2.061/x/"
+                    "MOD11_L2.A2020196.2355.061.2021012205841.hdf",
+                },
+            ],
+        )
+    ]}}
+
+    refs = parse_granule_entries(feed)
+
+    assert refs[0].s3_url == (
+        "s3://lp-prod-protected/MOD11_L2.061/x/MOD11_L2.A2020196.2355.061.2021012205841.hdf"
+    )
+
+
+def test_parse_leaves_s3_url_none_when_the_entry_has_no_s3_link():
+    feed = {"feed": {"entry": [
+        entry(
+            "MOD11_L2.A2026242.1125.061.NRT.hdf",
+            "https://nrt3.modaps.eosdis.nasa.gov/MOD11_L2.A2026242.1125.061.NRT.hdf",
+        )
+    ]}}
+
+    assert parse_granule_entries(feed)[0].s3_url is None
+
+
+def test_an_s3_link_to_an_unrecognised_bucket_is_dropped():
+    feed = {"feed": {"entry": [
+        entry(
+            "MOD11_L2.A2026242.1125.061.NRT.hdf",
+            "https://nrt3.modaps.eosdis.nasa.gov/MOD11_L2.A2026242.1125.061.NRT.hdf",
+            links=[
+                {
+                    "rel": "http://esipfed.org/ns/fedsearch/1.1/data#",
+                    "href": "https://nrt3.modaps.eosdis.nasa.gov/MOD11_L2.A2026242.1125.061.NRT.hdf",
+                },
+                {
+                    "rel": "http://esipfed.org/ns/fedsearch/1.1/s3#",
+                    "href": "s3://some-other-bucket/MOD11_L2.A2026242.1125.061.NRT.hdf",
+                },
+            ],
+        )
+    ]}}
+
+    assert parse_granule_entries(feed)[0].s3_url is None
+
+
 def test_parse_ignores_inherited_collection_links():
     feed = {"feed": {"entry": [{
         "producer_granule_id": "G1",

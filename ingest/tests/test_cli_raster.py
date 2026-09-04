@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from kiln_ingest import cli, granule, raster, storage_io
+from kiln_ingest.cmr import GranuleRef
 from kiln_ingest.granule import GranuleReduction
 from kiln_ingest.science import (
     CAUSE_VOLCANIC,
@@ -140,7 +141,7 @@ def test_fire_granules_are_paired_by_overpass_stamp():
     session = StubSession(fire_count=2)
     urls = cli.discover_fire_granules(session, "MOD11_L2", TARGET)
     assert sorted(urls) == ["A2026242.1125", "A2026242.1130"]
-    assert urls["A2026242.1125"].endswith("MOD14.1125.hdf")
+    assert urls["A2026242.1125"].url.endswith("MOD14.1125.hdf")
 
 
 def test_fire_discovery_failing_leaves_the_day_unmasked_rather_than_failing_it():
@@ -172,7 +173,13 @@ def test_an_unreadable_fire_granule_is_noted_not_masked(tmp_path):
         StubSession(),
         "token",
         tmp_path,
-        {"A2026242.1125": "https://nrt3.modaps.eosdis.nasa.gov/MOD14.1125.hdf"},
+        {
+            "A2026242.1125": GranuleRef(
+                granule_id="MOD14.1125.hdf",
+                url="https://nrt3.modaps.eosdis.nasa.gov/MOD14.1125.hdf",
+                observed_at="2026-08-30T11:25:00Z",
+            )
+        },
         "MOD11_L2.A2026242.1125.061.NRT.hdf",
         explode,
     )
@@ -185,7 +192,13 @@ def test_a_readable_fire_granule_yields_keys_and_the_plain_note(tmp_path):
         StubSession(),
         "token",
         tmp_path,
-        {"A2026242.1125": "https://nrt3.modaps.eosdis.nasa.gov/MOD14.1125.hdf"},
+        {
+            "A2026242.1125": GranuleRef(
+                granule_id="MOD14.1125.hdf",
+                url="https://nrt3.modaps.eosdis.nasa.gov/MOD14.1125.hdf",
+                observed_at="2026-08-30T11:25:00Z",
+            )
+        },
         "MOD11_L2.A2026242.1125.061.NRT.hdf",
         lambda path: (np.array([12.005]), np.array([34.005])),
     )
