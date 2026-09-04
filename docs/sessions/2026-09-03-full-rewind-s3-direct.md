@@ -162,5 +162,10 @@ session.
 
 - Heat index / humidity overlay: research-only, no code (MERRA-2 reanalysis
   flagged as the most plausible source, needs its own pass).
-- `manifest-alltime`'s "through" date shows last-merged date, not
-  `max(reading_date)` -- low-priority cosmetic bug, troth `c4e532a9`.
+
+## Picked up while blocked on AWS credentials
+
+- Fixed troth `c4e532a9` (manifest-alltime's "through" date regressing on a
+  historical backfill): added `alltime.alltime_through()`, mirroring the
+  already-correct `alltime_since()` carry-forward pattern but taking the max
+  instead of the min. Tested, committed (`5a09de4`), dismissed in Troth.
