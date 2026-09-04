@@ -1230,7 +1230,7 @@ def publish_alltime(
 
         manifest = storage_io.build_alltime_manifest(
             since=alltime.alltime_since(prior, target),
-            through=target,
+            through=alltime.alltime_through(prior, target),
             tile_count=alltime.alltime_tile_total(prior, created),
         )
         uploader.upload_manifest(manifest, storage_io.ALLTIME_MANIFEST_OBJECT)

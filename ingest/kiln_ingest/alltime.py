@@ -281,6 +281,25 @@ def alltime_since(prior_manifest: Mapping[str, object] | None, target: date) -> 
     return min(earliest, target).isoformat()
 
 
+def alltime_through(prior_manifest: Mapping[str, object] | None, target: date) -> date:
+    """The most recent date ever merged into the archive.
+
+    Carried forward from the published manifest and never moved backward: a
+    historical backfill's ``target`` can be years older than the archive's
+    real high-water mark, and publishing ``target`` unconditionally regressed
+    the manifest to that old date, undoing what the daily run had already
+    advanced it to (troth c4e532a9). A manifest that is missing or unreadable
+    makes today the record's leading edge, which is right for a first run and
+    honest for a lost one.
+    """
+    prior = (prior_manifest or {}).get("through")
+    try:
+        latest = date.fromisoformat(str(prior))
+    except (TypeError, ValueError):
+        return target
+    return max(latest, target)
+
+
 def alltime_tile_total(
     prior_manifest: Mapping[str, object] | None, created: int
 ) -> int:

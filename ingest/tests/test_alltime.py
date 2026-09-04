@@ -16,6 +16,7 @@ import pytest
 from kiln_ingest.alltime import (
     CorruptStateError,
     alltime_since,
+    alltime_through,
     alltime_tile_total,
     build_alltime_levels,
     dump_state,
@@ -351,6 +352,30 @@ def test_an_unusable_prior_since_falls_back_to_today(prior):
 
 def test_the_tile_total_grows_by_what_this_run_created():
     assert alltime_tile_total({"tile_count": 700}, created=17) == 717
+
+
+def test_the_leading_edge_is_carried_forward():
+    assert alltime_through({"through": "2026-08-30"}, TARGET) == TARGET
+
+
+def test_a_first_run_leads_with_today():
+    assert alltime_through(None, TARGET) == TARGET
+
+
+def test_backfilling_an_earlier_day_does_not_move_the_leading_edge_back():
+    # This is the manifest-alltime bug (troth c4e532a9): a historical backfill
+    # of, say, 2010-06-20 must not regress "through" behind whatever the
+    # daily run already advanced it to.
+    assert alltime_through({"through": "2026-08-30"}, date(2010, 6, 20)) == date(2026, 8, 30)
+
+
+def test_a_later_run_still_advances_the_leading_edge():
+    assert alltime_through({"through": "2026-08-25"}, TARGET) == TARGET
+
+
+@pytest.mark.parametrize("prior", [{}, {"through": None}, {"through": "not-a-date"}, {"through": 7}])
+def test_an_unusable_prior_through_falls_back_to_today(prior):
+    assert alltime_through(prior, TARGET) == TARGET
 
 
 def test_the_tile_total_starts_from_nothing_without_a_prior_manifest():
