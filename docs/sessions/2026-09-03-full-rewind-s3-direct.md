@@ -101,78 +101,121 @@ account creation or entered credentials. Done:
     creating. Until then, the $50 cap is a real, working email-alert net,
     just not a fully automated cutoff.
 
-**Still blocked on, deliberately paused for the user**: generating the
-actual access key. AWS shows the secret exactly once; the safe handoff is
-you clicking "Create access key" yourself (IAM console -> Users ->
-kiln-rewind-cli -> Security credentials -> Create access key -> use case
-"Command Line Interface (CLI)") and running `aws configure` in your own
-terminal -- never pasting the secret into this chat. Once that's done,
-everything in the launch checklist below is ready to run as-is.
+**Credentials generated** (2026-09-04, later that morning): the user
+generated the access key in the AWS console themselves and stored it in
+Doppler (`kiln` project, `dev_personal` config, `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY`) rather than `aws configure` -- consistent with this
+portfolio's existing secrets practice. Verified working via
+`doppler run --project kiln --config dev_personal -- aws sts get-caller-identity`.
+All AWS CLI calls this session go through `doppler run ... --`.
 
-## Launch checklist (once AWS credentials exist)
+## Benchmark: real, confirmed (2026-09-04)
 
-### 1. Benchmark first (~15 min, low cost)
+Launched one `c7i-flex.large` (2 vCPU; new AWS accounts are Free-Tier-instance-type
+-restricted -- see below) in `us-west-2`, cloned the repo, ran the real
+ingest CLI with `--s3-direct` against 2020-07-15:
 
-Launch one small instance in `us-west-2`, confirm S3-direct actually works
-end-to-end (not just the credential exchange, which was already verified),
-and get a real per-granule timing number before sizing the real box.
+- **Both satellites, one full day, S3-direct: 2m53.8s wall clock**
+  (~226 granules) -- confirmed via DEBUG log as genuine signed
+  `HeadObject`/`GetObject` calls against
+  `lp-prod-protected.s3.us-west-2.amazonaws.com`, no HTTPS fallback.
+- That's **~174s/day on 2 vCPU**, vs. the local baseline's ~20 min/day --
+  a real **~6.9x speedup**, exactly what direct same-region S3 access
+  should buy over the public HTTPS+CloudFront path.
+- Full record (2000-02-24..2026-09-04, 9,690 days) at that rate:
+  **19.5 days single-threaded**, ~9.8 days at 2-way, ~2.4 days at 8-way,
+  ~1.2 days at 16-way parallelism.
+- **Cost is a non-issue regardless of parallelism**: total instance-hours
+  is fixed (~468 hours of 2-vCPU-equivalent time); only wall-clock time
+  changes with worker count. Verified real Spot price for `c7i-flex.large`
+  in `us-west-2`: **$0.0268/hr** -> **~$12-15 total** for the entire 26-year
+  rewind, however it's sliced. Well under the $50 budget cap.
 
-```bash
-aws ec2 run-instances \
-  --region us-west-2 \
-  --image-id <current Amazon Linux 2023 AMI for us-west-2> \
-  --instance-type c7i.xlarge \
-  --key-name <your key pair> \
-  --count 1
-# SSH in, install Python 3.12 + the ingest requirements, clone the repo,
-# export EARTHDATA_TOKEN, then:
-python -m kiln_ingest --date 2020-07-15 --archive --dry-run \
-  --tiles-dir /tmp/bench --s3-direct --max-granules 20
-# Compare granules/sec against the local baseline (~5.3s/granule, flat
-# regardless of file size). Terminate the instance right after.
-```
+## New-account instance-type restriction (real finding, not a quota problem)
 
-### 2. Size the real job from the benchmark's real number
+Tried to launch anything bigger than a Free-Tier-eligible type
+(`c7i-flex.large`, `t3.small`, `t3.micro`, `t4g.small/micro`,
+`m7i-flex.large`) and every one failed:
+`InvalidParameterCombination: The specified instance type is not eligible
+for Free Tier.` This is **not** a Service Quotas limit -- the account's
+"Running On-Demand Standard instances" quota was already 32 vCPUs (checked
+directly), and a `--dry-run` launch of `c7i.4xlarge` even reported success.
+The restriction only triggers on a **real** launch and isn't visible or
+liftable via Service Quotas at all; it's a separate new-account abuse-
+prevention gate. Requesting a quota increase (the `AWSServiceQuotasFullAccess`
+policy was attached to `kiln-rewind-cli` for this) doesn't touch it -- ruled
+out as the wrong lever after confirming with a real (not dry-run) launch
+attempt.
 
-Don't reuse the numbers below without the real benchmark -- they're upper
-and lower bookends from what's confirmed today, not a sizing.
+## Fleet approach: chosen and running (2026-09-04, ~15:5x UTC)
 
-- **Known today (local, HTTPS, no S3):** ~20 min/day single-threaded ->
-  ~134 days of single-threaded work for the full record.
-- **If S3-direct cuts per-granule latency by 3-5x** (plausible for
-  same-region S3 GetObject vs. a public HTTPS+CloudFront redirect chain,
-  unconfirmed until the benchmark runs): ~4-27 min/day single-threaded.
-- Pick worker count and instance size from there. `c7i.4xlarge` (16 vCPU,
-  32 GB) priced around **$0.71/hr on-demand** in US regions (unconfirmed
-  for `us-west-2` specifically at launch time -- recheck), meaningfully
-  cheaper on Spot (typically 50-65% off for the C-family) and the whole
-  pipeline is spot-safe: every job is idempotent and resumable through
-  `BackfillLog`'s done-log, so an interruption just means that day retries
-  on the next launch.
+User's call, given the quota path didn't apply: split the date range across
+8 small Free-Tier-eligible instances rather than wait on AWS to lift the
+restriction or open a support case.
 
-### 3. Launch the real rewind
+**Infra built:**
+- S3 staging bucket `kiln-rewind-staging-363476363325` (`us-west-2`, public
+  access blocked).
+- IAM role + instance profile `kiln-rewind-fleet-node`: trusts
+  `ec2.amazonaws.com`, scoped to `s3:PutObject/GetObject/ListBucket` on only
+  that bucket. Fleet nodes authenticate via instance-metadata credentials
+  from this role -- **no AWS secret ever touches a fleet instance**, only the
+  NASA Earthdata token (scp'd, same as the benchmark).
+- A narrowly-scoped inline policy (`kiln-rewind-fleet-setup`) was added to
+  `kiln-rewind-cli` to create the above -- resource-scoped to exactly this
+  bucket and exactly this role/instance-profile name, not broad S3/IAM
+  access.
+- 8x `c7i-flex.large`, tag `Name=kiln-rewind-fleet`, `--instance-initiated
+  -shutdown-behavior terminate`, user-data installs Python 3.12 + clones the
+  repo + sets up `ingest/.venv`, plus a 4-day self-terminate safety net
+  (`shutdown -h now` after 345600s) in case a node gets orphaned.
+- Date range split into 8 contiguous ~1,211-day slices (script:
+  `scratchpad/deploy_node.sh`, mapping in `scratchpad/fleet-slices.txt`).
+  Each node runs `python -m kiln_scan rewind --start <s> --end <e>
+  --workers 2 --s3-direct --ingest-dir ~/kiln/ingest --ingest-python
+  ~/kiln/ingest/.venv/bin/python`, plus a background loop syncing
+  `~/rewind-tiles` -> `s3://.../tiles/` and `~/rewind-work` (the per-node
+  done-log) -> `s3://.../work/<hostname>/` every 120s.
+- All 8 confirmed running with `pgrep`/log-tail spot checks; S3 sync
+  confirmed landing real data.
 
-```bash
-python -m kiln_scan rewind \
-  --work-dir /path/to/ssd-or-instance-storage/rewind-work \
-  --tiles-dir /path/to/ssd-or-instance-storage/rewind-tiles \
-  --workers <sized from the benchmark> \
-  --s3-direct
-```
+**Expected completion**: ~1.2 days from launch (~2026-09-05 evening UTC),
+16-way effective parallelism (8 nodes x 2 workers).
 
-Staged output lands as JSON per day under `--tiles-dir`
-(`readings_<product>.json`, `anomalies_<product>.json` -- the exact
-`build_reading_rows`/`build_anomaly_rows` shape a live Supabase upsert would
-send). Resumable: re-running the same command skips every day already in the
-done-log.
+**Instance IDs, IPs, SSH key, security group, bucket name**: all recorded in
+`scratchpad/fleet-*.txt` (session-local, not committed -- ephemeral infra
+identifiers, not project state).
 
-### 4. Batch import to Supabase (not yet built)
+## Batch import to Supabase (not yet built)
 
 Once the new `kiln-archive` Supabase project exists (still blocked on the
 platform outage as of this writing -- retry `troth` / the Management API
 project-creation call before this step), a bulk importer needs to be written
-that reads the staged JSON and writes it in batches. Not started this
-session.
+that reads the staged JSON out of `s3://kiln-rewind-staging-363476363325/tiles/`
+and writes it into Supabase in batches. Not started this session.
+
+## Fleet teardown (do this once the rewind finishes or is abandoned)
+
+```bash
+doppler run --project kiln --config dev_personal -- aws ec2 terminate-instances \
+  --region us-west-2 --instance-ids $(cat scratchpad/fleet-instance-ids.txt)
+doppler run --project kiln --config dev_personal -- aws ec2 delete-security-group \
+  --region us-west-2 --group-id $(cat scratchpad/kiln-bench-sg-id.txt)
+doppler run --project kiln --config dev_personal -- aws ec2 delete-key-pair \
+  --region us-west-2 --key-name kiln-bench
+# Keep the S3 bucket until the batch-import step reads it; then:
+doppler run --project kiln --config dev_personal -- aws s3 rb \
+  s3://kiln-rewind-staging-363476363325 --force
+# The IAM role/instance-profile/policies are harmless to leave, but to remove:
+doppler run --project kiln --config dev_personal -- aws iam remove-role-from-instance-profile \
+  --instance-profile-name kiln-rewind-fleet-node --role-name kiln-rewind-fleet-node
+doppler run --project kiln --config dev_personal -- aws iam delete-instance-profile \
+  --instance-profile-name kiln-rewind-fleet-node
+doppler run --project kiln --config dev_personal -- aws iam delete-role-policy \
+  --role-name kiln-rewind-fleet-node --policy-name kiln-rewind-fleet-s3-access
+doppler run --project kiln --config dev_personal -- aws iam delete-role \
+  --role-name kiln-rewind-fleet-node
+```
 
 ## Also still open from before this session
 
