@@ -76,22 +76,38 @@ AWS.
   for `global_fetch`/`s3_direct`), `scan/tests/test_full_rewind.py` (new, 12
   tests). Both suites fully green (ingest 490, scan all passing).
 
-## Blocked on: AWS credentials
+## AWS account: set up this session (2026-09-04, ~04:xx UTC)
 
-Checked before writing any of the launch commands below: no AWS credentials
-exist anywhere in this setup. `~/.aws/` doesn't exist; the Doppler `kiln` and
-`tortoise` projects hold no AWS keys (checked `dev`/`prd` configs directly).
-Creating an AWS account or entering payment details is not something to do
-unattended -- that needs you.
+Drove Chrome for navigation while the user handled every sensitive field
+(email, password, payment, phone verification) themselves -- I never touched
+account creation or entered credentials. Done:
 
-**What's needed to unblock, either one:**
-1. An existing AWS account with an IAM user/access key (or `aws sso login`
-   already set up), or
-2. Create a fresh AWS account (needs a payment method) and generate an
-   access key for an IAM user with EC2 launch permissions in `us-west-2`.
+- New AWS account created, signed into the console (account id
+  `363476363325`, alias `thegrenadinekid25`).
+- IAM user `kiln-rewind-cli` created (no console password, programmatic use
+  only), with the `AmazonEC2FullAccess` managed policy attached.
+- Cost safety net, set up **before** touching any compute:
+  - AWS Budget `kiln-rewind-hard-cap`: $50.00/month, all AWS services in
+    scope (not just EC2). Email alerts at 50% and 100% of budget to
+    thegrenadinekid25@gmail.com.
+  - Billing preferences: AWS Free Tier alerts and CloudWatch billing alerts
+    both enabled and delivering to the root user email.
+  - **Not done**: an automated hard-stop action (AWS Budgets can attach an
+    action -- e.g. an IAM deny policy or an SSM automation to stop EC2 -- to
+    a threshold). This needs a dedicated IAM execution role for AWS Budgets
+    to assume, which didn't exist and isn't safe to hand-roll via console
+    clicks at 2am. Better done via CLI once credentials exist: write the
+    trust policy and the deny/stop policy precisely, show it before
+    creating. Until then, the $50 cap is a real, working email-alert net,
+    just not a fully automated cutoff.
 
-Once credentials exist (`aws configure` or env vars), everything below is
-ready to run as-is.
+**Still blocked on, deliberately paused for the user**: generating the
+actual access key. AWS shows the secret exactly once; the safe handoff is
+you clicking "Create access key" yourself (IAM console -> Users ->
+kiln-rewind-cli -> Security credentials -> Create access key -> use case
+"Command Line Interface (CLI)") and running `aws configure` in your own
+terminal -- never pasting the secret into this chat. Once that's done,
+everything in the launch checklist below is ready to run as-is.
 
 ## Launch checklist (once AWS credentials exist)
 
