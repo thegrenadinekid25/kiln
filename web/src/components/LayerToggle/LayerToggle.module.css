@@ -1,0 +1,30 @@
+.toggle {
+  display: flex;
+  gap: var(--space-1);
+  background: var(--sink);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+}
+
+.button {
+  flex: 1;
+  min-height: 40px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: var(--body-s-size);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.button:hover {
+  color: var(--ink-strong);
+}
+
+.button[aria-pressed='true'] {
+  background: var(--surface-raised);
+  border-color: var(--rule-strong);
+  color: var(--ink-strong);
+}

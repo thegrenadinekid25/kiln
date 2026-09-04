@@ -1,0 +1,102 @@
+name: Ingest LST
+
+# Kiln's only writer. Pulls NASA LANCE near-real-time MODIS land surface
+# temperature granules for a target date, screens out active fires and
+# implausible readings, upserts the hottest 1-degree tiles into the kiln schema
+# in Supabase, publishes a native-resolution raster tile pyramid to the
+# kiln-tiles bucket, and folds the day into the permanent all-time archive.
+
+on:
+  schedule:
+    # 09:00 UTC: yesterday's near-real-time granules are published and complete
+    # by then (LANCE latency is roughly 3 hours behind observation).
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "UTC date to ingest (YYYY-MM-DD). Leave blank for yesterday."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two runs writing the same reading_date would fight over the same rows.
+  group: kiln-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Ingest MODIS LST
+    runs-on: ubuntu-latest
+    # Both satellites now run in one job, and each LST granule pulls a small
+    # fire granule alongside it, so the budget covers roughly a third more
+    # downloading than the two-step version did.
+    timeout-minutes: 180
+
+    defaults:
+      run:
+        working-directory: ingest
+
+    env:
+      EARTHDATA_TOKEN: ${{ secrets.EARTHDATA_TOKEN }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      INGEST_DATE: ${{ inputs.date }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/requirements.txt
+
+      - name: Install HDF4 libraries
+        # pyhdf links against libhdf4; the wheel falls back to a source build
+        # on runners where no prebuilt one matches.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libhdf4-dev
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ingest Terra and Aqua
+        # One invocation, not one per satellite: the raster tile pyramid is per
+        # day rather than per satellite -- the maximum across both passes -- so
+        # both products have to accumulate into the same process before it is
+        # encoded and uploaded.
+        #
+        # Each satellite is still allowed to fail on its own: the CLI exits 0
+        # when either product produced data and the tiles were published, and 1
+        # when both products failed or the raster stage did. Per-satellite
+        # outcomes are in the step log and in the kiln.ingest_runs rows.
+        id: ingest
+        continue-on-error: true
+        run: |
+          args=()
+          if [ -n "$INGEST_DATE" ]; then args+=(--date "$INGEST_DATE"); fi
+          python -m kiln_ingest "${args[@]}"
+
+      - name: Report outcome
+        env:
+          INGEST_OUTCOME: ${{ steps.ingest.outcome }}
+        run: |
+          {
+            echo "### Kiln ingestion"
+            echo ""
+            echo "| Stage | Outcome |"
+            echo "| --- | --- |"
+            echo "| MOD11_L2 + MYD11_L2, screens, raster tiles, all-time archive | $INGEST_OUTCOME |"
+            echo ""
+            echo "Per-satellite detail is in the step log and in \`kiln.ingest_runs\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$INGEST_OUTCOME" != "success" ]; then
+            echo "::error::Ingestion failed: both satellites produced nothing, or the raster tiles were not published."
+            exit 1
+          fi

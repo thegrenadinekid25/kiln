@@ -1,0 +1,7 @@
+# Configuration only. The scanner runs as `python -m kiln_scan` from this
+# directory rather than being installed, so there is no [build-system] here.
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

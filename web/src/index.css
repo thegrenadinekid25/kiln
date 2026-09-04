@@ -1,0 +1,72 @@
+@import './tokens.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--plate);
+  color: var(--ink-strong);
+  font-family: var(--font-body);
+  font-size: var(--body-size);
+  line-height: var(--body-lh);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button {
+  font-family: var(--font-body);
+}
+
+/* MapLibre chrome, restyled to the house. */
+.maplibregl-popup-content {
+  background: var(--surface-raised);
+  color: var(--ink-strong);
+  font-family: var(--font-body);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  padding: var(--space-3) var(--space-4);
+}
+
+.maplibregl-popup-tip {
+  border-top-color: var(--rule-strong);
+}
+
+.maplibregl-popup-close-button {
+  font-size: 16px;
+  color: var(--ink-muted);
+  padding: 2px 8px;
+}
+
+.maplibregl-ctrl-group {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

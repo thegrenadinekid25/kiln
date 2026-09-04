@@ -1,0 +1,5 @@
+version: 0.1.0
+timeout: 600000
+cloud:
+  project_id: fc5d69b3-208a-4754-8272-6f9903ce5d64
+  auto_sync: true

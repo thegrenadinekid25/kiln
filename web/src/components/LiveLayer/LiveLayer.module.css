@@ -1,0 +1,17 @@
+.hotspot {
+  padding: var(--space-1) var(--space-2);
+  min-width: 44px;
+  min-height: 32px;
+  background: var(--surface-raised);
+  border: 1px solid var(--heat-5);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  color: var(--ink-strong);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hotspot:hover {
+  background: var(--accent-wash);
+}

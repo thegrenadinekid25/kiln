@@ -1,0 +1,94 @@
+/* ============================================================
+   THE HOTTEST PLACE IN THE WORLD — Atlas Plate theme
+   (decision 2026-09-02). Mid-tone sage plate ground, light card
+   surfaces, heat sienna as the only saturated family, Survey
+   Sheet type (Archivo Narrow display / Archivo UI / Plex Mono
+   numerals). Deliberate departure from the Camp C skeleton.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ATLAS PLATE (decision 2026-09-02): mid-tone sage plate ground; cards are
+     the only light surfaces; heat sienna is the sole saturated family.
+     Deliberately departs the Camp C skeleton — this product owns its theme. */
+  --plate:          #9AA396; /* the map ground; basemap patched to match */
+  --paper:          #EFEEE6; /* cards, panels ("paper" name kept for reach) */
+  --surface:        #EFEEE6;
+  --surface-raised: #F4F3EB;
+  --sink:           #DCDBD0;
+
+  /* Ink — dark moss near-black */
+  --ink:        42, 46, 40;
+  --ink-strong: rgba(42, 46, 40, 0.95);
+  --ink-muted:  rgba(42, 46, 40, 0.66);
+  --ink-faint:  rgba(42, 46, 40, 0.42);
+
+  --rule:        rgba(42, 46, 40, 0.16);
+  --rule-strong: #4A5046;
+
+  /* Accent — heat sienna, the data's own color family. */
+  --accent:         #9A4E17;
+  --accent-strong:  #7C3F13; /* AA on card */
+  --accent-pressed: #8A4615;
+  --accent-wash:    #E4D5BF;
+  --accent-on:      #F4F3EB;
+
+  --positive:      #5E7B61;
+  --positive-wash: #E4EBE2;
+
+  --refusal:        #98674C;
+  --refusal-strong: #7C5238;
+  --refusal-wash:   #F0E6DF;
+
+  /* Type — Survey Sheet pairing: condensed grotesque display, plain grotesque
+     UI, humanist mono for every numeral. */
+  --font-display: 'Archivo Narrow', 'Arial Narrow', sans-serif;
+  --font-body:    'Archivo', system-ui, -apple-system, sans-serif;
+  --font-mono:    'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --title-size:   28px; --title-lh:   1.18; --title-ls:   -0.006em; --title-wt:   500;
+  --heading-size: 20px; --heading-lh: 1.30; --heading-ls: -0.002em; --heading-wt: 560;
+  --body-size:    16px; --body-lh:    1.55; --body-wt:    400;
+  --body-s-size:  14px; --body-s-lh:  1.50; --body-s-wt:  400;
+  --caption-size: 13px; --caption-lh: 1.45; --caption-ls: 0.002em; --caption-wt: 450;
+  --mono-size:    13.5px; --mono-lh:  1.50; --mono-wt:    400;
+  --chip-size:    12px; --chip-lh:    1;    --chip-ls:    0.08em;  --chip-wt:    560;
+
+  /* Geometry — 4px rhythm */
+  --radius-sm:   3px;
+  --radius-md:   6px;
+  --radius-lg:   10px;
+  --radius-pill: 999px;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+
+  /* Motion — nothing over 200ms */
+  --dur-fast:  120ms;
+  --dur-base:  160ms;
+  --dur-enter: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit:     cubic-bezier(0.4, 0, 1, 1);
+
+  /* Heat ramp — Atlas Plate sienna sequence: the only saturation on screen.
+     Monotonic lightness, no alarmist red. Mirrored in the pipeline's PNG
+     palette (tile_png) and LiveLayer's step expression — change together. */
+  --heat-1: #C9B896; /* 40-50 C */
+  --heat-2: #C79B5B; /* 50-58 C */
+  --heat-3: #BC7431; /* 58-66 C */
+  --heat-4: #9A4E17; /* 66-74 C */
+  --heat-5: #6E3410; /* 74+ C  */
+}
+
+/* Focus — first-class house object. Never outline: none. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}

@@ -1,0 +1,9 @@
+# Deliberately standalone rather than "-r requirements.txt": pyhdf needs the
+# libhdf4 development headers, which CI has and a bare macOS machine does not.
+# The test suite never imports pyhdf, so this file alone is enough to run it.
+# Pillow does belong here: the tile tests decode what the encoder wrote, and
+# it ships wheels everywhere pyhdf does not.
+numpy==2.1.3
+pillow==11.0.0
+requests==2.32.3
+pytest==8.3.4

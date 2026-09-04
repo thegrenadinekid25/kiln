@@ -1,0 +1,175 @@
+.panel {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 10;
+  width: min(340px, calc(100vw - 32px));
+  background: var(--surface-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-size: 21px;
+  text-transform: uppercase;
+  letter-spacing: 0.015em;
+  font-weight: 700;
+  text-wrap: balance;
+  line-height: var(--title-lh);
+  letter-spacing: var(--title-ls);
+  font-weight: var(--title-wt);
+  margin: 0;
+}
+
+.tagline {
+  font-size: var(--body-s-size);
+  line-height: var(--body-s-lh);
+  color: var(--ink-muted);
+  margin: var(--space-1) 0 var(--space-3);
+}
+
+.layerContent {
+  margin-top: var(--space-3);
+}
+
+.status {
+  font-size: var(--body-s-size);
+  line-height: var(--body-s-lh);
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  color: var(--ink-strong);
+}
+
+.emptyAction {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  background: var(--accent-wash);
+  color: var(--accent-strong);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  font-size: var(--body-s-size);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.emptyAction:hover {
+  background: var(--sink);
+}
+
+.recordList {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.recordRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--body-s-size);
+  color: var(--ink-strong);
+}
+
+.recordRow:hover {
+  background: var(--sink);
+}
+
+.recordRow[aria-pressed='true'] {
+  background: var(--accent-wash);
+  border-color: var(--rule);
+}
+
+.recordValue {
+  font-family: var(--font-mono);
+  font-size: var(--mono-size);
+  white-space: nowrap;
+}
+
+.recordPlace {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-muted);
+}
+
+.recordChip {
+  font-size: var(--chip-size);
+  letter-spacing: var(--chip-ls);
+  font-weight: var(--chip-wt);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.attribution {
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+  font-size: var(--caption-size);
+  line-height: var(--caption-lh);
+  letter-spacing: var(--caption-ls);
+  color: var(--ink-muted);
+}
+
+.stale {
+  color: var(--refusal-strong);
+  font-weight: 500;
+}
+
+/* Phones: the map is the product; the panel must not bury it. */
+@media (max-width: 480px) {
+  .panel {
+    top: var(--space-2);
+    left: var(--space-2);
+    width: calc(100vw - 16px);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .recordList {
+    max-height: 34vh;
+    overflow-y: auto;
+  }
+
+  .tagline {
+    margin-bottom: var(--space-2);
+  }
+}
+
+.leaderboardLink {
+  margin: var(--space-3) 0 0;
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  padding: var(--space-1) 0;
+  min-height: 32px;
+  font-size: var(--body-s-size);
+  font-weight: 500;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

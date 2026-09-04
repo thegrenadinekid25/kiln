@@ -1,0 +1,7 @@
+# Deliberately standalone rather than "-r requirements.txt": pyhdf needs the
+# libhdf4 development headers, which a bare macOS machine does not have. The
+# test suite never imports pyhdf -- kiln_scan.hdf imports it lazily inside its
+# read function -- so this file alone is enough to run the whole suite.
+numpy==2.1.3
+requests==2.32.3
+pytest==8.3.4

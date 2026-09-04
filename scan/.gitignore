@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Scan working directories: downloads, candidate CSVs, all-time grids.
+work/
+work-*/

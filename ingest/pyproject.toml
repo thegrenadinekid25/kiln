@@ -1,0 +1,7 @@
+# Configuration only. The pipeline runs as `python -m kiln_ingest` from this
+# directory rather than being installed, so there is no [build-system] here.
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
