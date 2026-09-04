@@ -3,7 +3,7 @@
    (decision 2026-09-02). Mid-tone sage plate ground, light card
    surfaces, heat sienna as the only saturated family, Survey
    Sheet type (Archivo Narrow display / Archivo UI / Plex Mono
-   numerals). Deliberate departure from the Camp C skeleton.
+   numerals). This product's own theme, not shared with sibling products.
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=Archivo:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -11,7 +11,7 @@
 :root {
   /* ATLAS PLATE (decision 2026-09-02): mid-tone sage plate ground; cards are
      the only light surfaces; heat sienna is the sole saturated family.
-     Deliberately departs the Camp C skeleton — this product owns its theme. */
+     This product owns its own theme, independent of any other product. */
   --plate:          #9AA396; /* the map ground; basemap patched to match */
   --paper:          #EFEEE6; /* cards, panels ("paper" name kept for reach) */
   --surface:        #EFEEE6;

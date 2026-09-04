@@ -1,5 +1,22 @@
-export function formatTemp(valueC: number): string {
-  return `${valueC.toFixed(1)} °C`
+export type TempUnit = 'C' | 'F'
+
+export function toUnit(valueC: number, unit: TempUnit): number {
+  return unit === 'F' ? valueC * 1.8 + 32 : valueC
+}
+
+export function formatTemp(valueC: number, unit: TempUnit = 'C'): string {
+  return `${toUnit(valueC, unit).toFixed(1)} °${unit}`
+}
+
+// Popup bodies are assembled as HTML strings; place names and QC notes come
+// from the database and must never be able to close a tag.
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 export function formatUtcDate(iso: string): string {
@@ -76,8 +93,8 @@ export function estimateAirTempC(surfaceC: number): number {
   return 0.6443 * surfaceC + 3.1876
 }
 
-export function formatAirEstimate(surfaceC: number): string {
-  return `air \u2248 ${estimateAirTempC(surfaceC).toFixed(0)} \u00b0C`
+export function formatAirEstimate(surfaceC: number, unit: TempUnit = 'C'): string {
+  return `air \u2248 ${toUnit(estimateAirTempC(surfaceC), unit).toFixed(0)} \u00b0${unit}`
 }
 
 export const AIR_ESTIMATE_NOTE =

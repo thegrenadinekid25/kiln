@@ -1,0 +1,25 @@
+/* A diamond, not a rounded heat chip: shape carries the distinction as well
+   as color, so the "not weather" layer reads apart at a glance. */
+.marker {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.marker span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  background: var(--refusal-wash);
+  border: 1.5px solid var(--refusal-strong);
+  transform: rotate(45deg);
+}
+
+.marker:hover span {
+  background: var(--refusal);
+}

@@ -41,6 +41,7 @@ export function Leaderboard({
   const activeLayer = useKilnStore((s) => s.activeLayer)
   const setScreen = useKilnStore((s) => s.setScreen)
   const map = useKilnStore((s) => s.map)
+  const unit = useKilnStore((s) => s.unit)
 
   const [query, setQuery] = useState('')
   const [area, setArea] = useState<Area>('everywhere')
@@ -170,8 +171,8 @@ export function Leaderboard({
                   {reading.place_name ?? formatCoords(reading.max_lat, reading.max_lon)}
                 </span>
                 <span className={styles.tempStack}>
-                  <span className={styles.temp}>{formatTemp(reading.max_c)}</span>
-                  <span className={styles.airEst}>{formatAirEstimate(reading.max_c)}</span>
+                  <span className={styles.temp}>{formatTemp(reading.max_c, unit)}</span>
+                  <span className={styles.airEst}>{formatAirEstimate(reading.max_c, unit)}</span>
                 </span>
                 <span className={styles.date}>{formatMonthYear(reading.reading_date)}</span>
               </button>
@@ -196,7 +197,7 @@ export function Leaderboard({
                   >
                     <span className={styles.chip}>{ANOMALY_CAUSE_LABEL[anomaly.cause]}</span>
                     <span className={styles.place}>{anomalyPlace(anomaly)}</span>
-                    <span className={styles.temp}>{formatTemp(anomaly.max_c)}</span>
+                    <span className={styles.temp}>{formatTemp(anomaly.max_c, unit)}</span>
                     <span className={styles.date}>{formatMonthYear(anomaly.reading_date)}</span>
                   </button>
                 </li>

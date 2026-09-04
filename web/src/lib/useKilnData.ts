@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import { STORAGE_BASE } from './tiles'
 import type {
   AlltimeManifest,
   AnomalyReading,
@@ -26,7 +27,6 @@ interface KilnData {
 const READINGS_PAGE = 1000
 const READINGS_MAX_PAGES = 12
 
-const STORAGE_BASE = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/kiln-tiles`
 const MANIFEST_URL = `${STORAGE_BASE}/manifest.json`
 const ALLTIME_MANIFEST_URL = `${STORAGE_BASE}/manifest-alltime.json`
 
@@ -119,6 +119,18 @@ async function fetchAllReadings(readingDate: string): Promise<LstReading[]> {
   return all
 }
 
+// Terra and Aqua each write their own row per tile; keep only the hottest per
+// tile. Rows arrive hottest-first, so first wins.
+export async function fetchReadingsForDate(readingDate: string): Promise<LstReading[]> {
+  const rows = await fetchAllReadings(readingDate)
+  const byTile = new Map<string, LstReading>()
+  for (const reading of rows) {
+    const key = `${reading.tile_lat},${reading.tile_lon}`
+    if (!byTile.has(key)) byTile.set(key, reading)
+  }
+  return [...byTile.values()]
+}
+
 // One read per page load. The data changes once a day; live refetching
 // would be motion without information.
 export function useKilnData(): KilnData {
@@ -163,18 +175,7 @@ export function useKilnData(): KilnData {
 
         const latestRun = (runRes.data?.[0] as IngestRun | undefined) ?? null
 
-        let readings: LstReading[] = []
-        if (latestRun) {
-          const rows = await fetchAllReadings(latestRun.reading_date)
-          // Terra and Aqua each write their own row per tile; keep only the
-          // hottest per tile. Rows arrive hottest-first, so first wins.
-          const byTile = new Map<string, LstReading>()
-          for (const reading of rows) {
-            const key = `${reading.tile_lat},${reading.tile_lon}`
-            if (!byTile.has(key)) byTile.set(key, reading)
-          }
-          readings = [...byTile.values()]
-        }
+        const readings = latestRun ? await fetchReadingsForDate(latestRun.reading_date) : []
 
         if (!cancelled) {
           setData({

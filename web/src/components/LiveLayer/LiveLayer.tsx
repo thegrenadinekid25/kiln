@@ -1,8 +1,15 @@
 import { useEffect } from 'react'
 import maplibregl from 'maplibre-gl'
-import { useKilnStore } from '../../store/useKilnStore'
+import { useKilnStore, type TempMode } from '../../store/useKilnStore'
 import type { LstReading } from '../../lib/types'
-import { formatAirEstimate, formatTemp, formatUtcDateTime } from '../../lib/format'
+import {
+  escapeHtml,
+  estimateAirTempC,
+  formatAirEstimate,
+  formatTemp,
+  formatUtcDateTime,
+  type TempUnit,
+} from '../../lib/format'
 import styles from './LiveLayer.module.css'
 
 interface LiveLayerProps {
@@ -19,8 +26,6 @@ const LINE_LAYER_ID = 'kiln-lst-tiles-line'
 const RASTER_SOURCE_ID = 'kiln-lst-raster'
 const RASTER_LAYER_ID = 'kiln-lst-raster-layer'
 
-export const TILES_BASE = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/kiln-tiles/`
-
 // The heat ramp steps mirror --heat-1..5 in tokens.css. MapLibre expressions
 // need literal colors, so the values are duplicated here on purpose; change
 // both places together.
@@ -34,12 +39,26 @@ const HEAT_COLOR: maplibregl.ExpressionSpecification = [
   74, '#6E3410',
 ]
 
+// The same ramp against the air estimate, broken at round air temperatures.
+// The estimate is a linear function of the surface reading, so the ordering of
+// tiles never changes between modes — only where the bands fall.
+const AIR_COLOR: maplibregl.ExpressionSpecification = [
+  'step',
+  ['get', 'air_c'],
+  '#C9B896',
+  35, '#C79B5B',
+  40, '#BC7431',
+  45, '#9A4E17',
+  50, '#6E3410',
+]
+
 function tileFeature(reading: LstReading): GeoJSON.Feature {
   const { tile_lat: lat, tile_lon: lon } = reading
   return {
     type: 'Feature',
     properties: {
       max_c: reading.max_c,
+      air_c: estimateAirTempC(reading.max_c),
       satellite: reading.satellite,
       observed_at: reading.observed_at,
       qc_note: reading.qc_note,
@@ -59,10 +78,34 @@ function tileFeature(reading: LstReading): GeoJSON.Feature {
   }
 }
 
+// In air mode the estimate leads and the measured surface reading sits under
+// it, so the popup always says which number is measured and which is derived.
+function popupHtml(
+  reading: { max_c: number; satellite: string; observed_at: string; qc_note: string | null },
+  popupLabel: string,
+  unit: TempUnit,
+  mode: TempMode,
+): string {
+  const ground = formatTemp(reading.max_c, unit)
+  const air = formatAirEstimate(reading.max_c, unit)
+  const lead = mode === 'air' ? `${air} (estimated)` : ground
+  const second = mode === 'air' ? `ground ${ground}, measured` : `${air} (estimated)`
+  const note = reading.qc_note ? `<div>${escapeHtml(reading.qc_note)}</div>` : ''
+  return (
+    `<strong style="font-family: var(--font-mono)">${lead}</strong>` +
+    `<div>${second}</div>` +
+    `<div>${popupLabel}, ${escapeHtml(reading.satellite)}</div>` +
+    `<div>As of ${formatUtcDateTime(reading.observed_at)}</div>` +
+    note
+  )
+}
+
 // Renders the day's per-tile maxima as 1-degree cells. Tiles the pipeline did
 // not write are simply absent — cloud gaps stay gaps, nothing is interpolated.
 export function LiveLayer({ readings, tileUrl, popupLabel }: LiveLayerProps) {
   const map = useKilnStore((s) => s.map)
+  const unit = useKilnStore((s) => s.unit)
+  const mode = useKilnStore((s) => s.tempMode)
 
   useEffect(() => {
     if (!map || readings.length === 0) return
@@ -75,7 +118,9 @@ export function LiveLayer({ readings, tileUrl, popupLabel }: LiveLayerProps) {
     // With a raster pyramid available, the ~1 km raster carries the visual and
     // the 1-degree fills become a near-invisible hit layer for click popups.
     // Without one (raster pipeline not yet run), the fills remain the visual.
-    const hasRaster = tileUrl !== null
+    // The raster's pixels are pre-rendered surface temperature and cannot be
+    // recolored client-side, so air mode drops it and shows the coarse fills.
+    const hasRaster = tileUrl !== null && mode === 'ground'
 
     // Keep the raster under the basemap's place labels.
     const firstSymbolLayer = map.getStyle().layers?.find((l) => l.type === 'symbol')?.id
@@ -112,7 +157,10 @@ export function LiveLayer({ readings, tileUrl, popupLabel }: LiveLayerProps) {
         id: FILL_LAYER_ID,
         type: 'fill',
         source: SOURCE_ID,
-        paint: { 'fill-color': HEAT_COLOR, 'fill-opacity': hasRaster ? 0.01 : 0.7 },
+        paint: {
+          'fill-color': mode === 'air' ? AIR_COLOR : HEAT_COLOR,
+          'fill-opacity': hasRaster ? 0.01 : 0.7,
+        },
       },
       hasRaster ? firstSymbolLayer : undefined,
     )
@@ -137,16 +185,9 @@ export function LiveLayer({ readings, tileUrl, popupLabel }: LiveLayerProps) {
         observed_at: string
         qc_note: string | null
       }
-      const note = props.qc_note ? `<div>${props.qc_note}</div>` : ''
       popup
         .setLngLat(event.lngLat)
-        .setHTML(
-          `<strong style="font-family: var(--font-mono)">${formatTemp(props.max_c)}</strong>` +
-            `<div>${formatAirEstimate(props.max_c)} (estimated)</div>` +
-            `<div>${popupLabel}, ${props.satellite}</div>` +
-            `<div>As of ${formatUtcDateTime(props.observed_at)}</div>` +
-            note,
-        )
+        .setHTML(popupHtml(props, popupLabel, unit, mode))
         .addTo(map!)
     }
 
@@ -165,23 +206,20 @@ export function LiveLayer({ readings, tileUrl, popupLabel }: LiveLayerProps) {
     // readings get labeled markers so the layer communicates without zooming.
     // readings arrive sorted hottest-first.
     const markers = readings.slice(0, 3).map((reading) => {
+      const label =
+        mode === 'air'
+          ? formatAirEstimate(reading.max_c, unit)
+          : formatTemp(reading.max_c, unit)
       const el = document.createElement('button')
       el.type = 'button'
       el.className = styles.hotspot
-      el.textContent = formatTemp(reading.max_c)
+      el.textContent = label
 
       el.addEventListener('click', (event) => {
         event.stopPropagation()
-        const note = reading.qc_note ? `<div>${reading.qc_note}</div>` : ''
         popup
           .setLngLat([reading.max_lon, reading.max_lat])
-          .setHTML(
-            `<strong style="font-family: var(--font-mono)">${formatTemp(reading.max_c)}</strong>` +
-              `<div>${formatAirEstimate(reading.max_c)} (estimated)</div>` +
-              `<div>${popupLabel}, ${reading.satellite}</div>` +
-              `<div>As of ${formatUtcDateTime(reading.observed_at)}</div>` +
-              note,
-          )
+          .setHTML(popupHtml(reading, popupLabel, unit, mode))
           .addTo(map!)
       })
 
@@ -190,7 +228,7 @@ export function LiveLayer({ readings, tileUrl, popupLabel }: LiveLayerProps) {
         .addTo(map!)
       el.setAttribute(
         'aria-label',
-        `${popupLabel} ${formatTemp(reading.max_c)}, as of ${formatUtcDateTime(reading.observed_at)}`,
+        `${popupLabel} ${label}, as of ${formatUtcDateTime(reading.observed_at)}`,
       )
       return marker
     })
@@ -207,7 +245,7 @@ export function LiveLayer({ readings, tileUrl, popupLabel }: LiveLayerProps) {
       if (map.getLayer(RASTER_LAYER_ID)) map.removeLayer(RASTER_LAYER_ID)
       if (map.getSource(RASTER_SOURCE_ID)) map.removeSource(RASTER_SOURCE_ID)
     }
-  }, [map, readings, tileUrl, popupLabel])
+  }, [map, readings, tileUrl, popupLabel, unit, mode])
 
   return null
 }
