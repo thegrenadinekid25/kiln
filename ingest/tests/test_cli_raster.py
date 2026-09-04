@@ -477,6 +477,18 @@ def test_a_whole_dry_run_produces_rows_and_tiles_for_both_satellites(
     assert manifest["tile_count"] == len(list(tiles_dir.rglob("*.png")))
     assert manifest["tile_count"] > 0
 
+    # Staged locally too: readings/anomalies per product, same row shape a
+    # live upsert would send, under a per-date directory.
+    day_dir = tiles_dir / "2026-08-30"
+    mod_rows = json.loads((day_dir / "readings_MOD11_L2.json").read_text())
+    myd_rows = json.loads((day_dir / "readings_MYD11_L2.json").read_text())
+    assert mod_rows and myd_rows
+    assert mod_rows[0]["reading_date"] == "2026-08-30"
+    assert mod_rows[0]["satellite"] == "Terra"
+    assert mod_rows[0]["product"] == "MOD11_L2"
+    # No network round trip for names on a staged export -- backfilled later.
+    assert mod_rows[0]["place_name"] is None
+
     output = capsys.readouterr().out
     assert "MOD11_L2 (Terra)" in output and "MYD11_L2 (Aqua)" in output
 

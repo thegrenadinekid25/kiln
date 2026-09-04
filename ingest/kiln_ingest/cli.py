@@ -84,6 +84,8 @@ from .supabase_io import (
     SupabaseWriter,
     build_alltime_row,
     build_anomaly_row,
+    build_anomaly_rows,
+    build_reading_rows,
     resolve_run_status,
 )
 
@@ -680,6 +682,39 @@ def write_tiles_locally(
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(body)
     (tiles_dir / storage_io.MANIFEST_OBJECT).write_text(json.dumps(manifest, indent=2) + "\n")
+
+
+def write_readings_locally(day: DayAccumulator, target: date, tiles_dir: Path) -> int:
+    """Stage this day's readings and anomalies as JSON, for a later bulk import.
+
+    Used when Supabase itself is unreachable (an outage, or -- as on
+    2026-09-04 -- no project exists yet to write to) but the NASA download and
+    every screen should run anyway rather than wait. Reuses the exact row
+    builders the live writer calls, so a staged file and a live upsert payload
+    are byte-for-byte the same shape; the later import step is a straight
+    POST of this JSON, not a translation.
+
+    Place names are deliberately left unresolved here: geocoding is rate
+    limited to about one request a second, and running it inline would slow a
+    many-day local backfill for no reason -- the existing
+    ``kiln_ingest.geocode --backfill`` entry point fills names in once the
+    data is actually in Supabase, exactly as it does for a live run.
+    """
+    day_dir = tiles_dir / target.isoformat()
+    day_dir.mkdir(parents=True, exist_ok=True)
+    rows_written = 0
+
+    for product, tiles in day.per_product.items():
+        rows = build_reading_rows(tiles.values(), target, product)
+        (day_dir / f"readings_{product}.json").write_text(json.dumps(rows, indent=2) + "\n")
+        rows_written += len(rows)
+
+    for product, anomalies in day.anomalies.items():
+        rows = build_anomaly_rows(anomalies.values(), target, product)
+        (day_dir / f"anomalies_{product}.json").write_text(json.dumps(rows, indent=2) + "\n")
+        rows_written += len(rows)
+
+    return rows_written
 
 
 def report_raster(per_zoom: dict[int, int], destination: Path) -> None:
@@ -1293,6 +1328,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         geocode.report_pending(resolver)
+        if args.tiles_dir:
+            staged = write_readings_locally(day, target, args.tiles_dir)
+            LOG.info("staged %d reading/anomaly row(s) locally at %s", staged, args.tiles_dir)
     elif resolver.requests_made:
         LOG.info("place names: %d cell(s) reverse geocoded", resolver.requests_made)
 
