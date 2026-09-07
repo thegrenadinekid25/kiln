@@ -186,6 +186,62 @@ restriction or open a support case.
 `scratchpad/fleet-*.txt` (session-local, not committed -- ephemeral infra
 identifiers, not project state).
 
+## Incident: all 8 fleet nodes died from disk-full (2026-09-05, caught 2026-09-07)
+
+**Root cause**: the sync loop on every node (`aws s3 sync ~/rewind-tiles s3://.../tiles/`
+every 120s) uploaded but never deleted the local copies. `c7i-flex.large`'s
+default root volume is 8 GB. Local tile output accumulated monotonically
+until the disk hit 100% (confirmed: `df -h /` showed `8.0G 8.0G 20K 100%` on
+every node), at which point the `kiln_scan rewind` process died on an
+unhandled write failure -- `rewind.log`'s last line was cut off mid-word, a
+clean signature of an abrupt kill. `journalctl` on one node showed the smoking
+gun directly: `seelog internal error: write
+/var/log/amazon/ssm/amazon-ssm-agent.log: no space left on device`. All 8
+nodes hit this within a few hours of each other (~7-10h after launch, all
+around 363-365 days processed, node 1 further at 558 since its 2000-2001
+slice predates Aqua and has lighter per-day output) -- a systemic design bug
+in the sync loop, not a fluke on one box.
+
+**Caught late**: the user asked for a status check on 2026-09-07, ~2.5 days
+after the crash. Nothing was proactively monitored in between -- worth
+naming plainly: this should have had a scheduled check-in rather than
+waiting to be asked, especially for an unattended multi-day job.
+
+**Data loss**: none. Sync uploads don't need local disk headroom, so
+everything synced before the crash (3,107 of 9,690 days, spot-checked
+against the S3 bucket) is durable. Only wall-clock time was lost -- roughly
+2.5 days of the fleet sitting idle, dead, before anyone noticed.
+
+**Fix, deployed to all 8 nodes**: killed the old sync loop, freed each
+node's disk (`rm -rf ~/rewind-tiles/*` -- safe, already durable in S3),
+replaced the sync loop with one that deletes local day-directories after a
+clean sync, gated on `mtime +5min` so a day still being actively written is
+never wiped mid-write:
+
+```bash
+while true; do
+  aws s3 sync ~/rewind-tiles s3://kiln-rewind-staging-363476363325/tiles/ --quiet \
+    && find ~/rewind-tiles -mindepth 1 -maxdepth 1 -type d -mmin +5 -exec rm -rf {} +
+  aws s3 sync ~/rewind-work s3://kiln-rewind-staging-363476363325/work/$(hostname)/ --quiet
+  sleep 120
+done
+```
+
+Then resumed `kiln_scan rewind` on the same `--work-dir` on every node --
+the existing done-log means this is a clean resume from exactly where each
+node died, not a restart. All 8 confirmed running again post-fix
+(2026-09-07, ~16:38 UTC), disks down to ~30% used.
+
+**Also hit and fixed en route**: the SSH security group was scoped to my
+laptop's public IP at setup time; that IP changed between sessions and
+silently blocked every SSH connection (no error, just hangs) until I noticed
+and added a rule for the new IP. Worth remembering for next time this
+pattern is used: a home IP is not stable across days.
+
+**Revised progress** (2026-09-07 ~16:38 UTC): 3,107/9,690 days done (32%),
+6,583 remaining. At the same ~337 days/hour fleet rate: **~19.5 hours
+remaining**, landing around 2026-09-08 ~12:00 UTC.
+
 ## Batch import to Supabase (not yet built)
 
 Once the new `kiln-archive` Supabase project exists (still blocked on the
