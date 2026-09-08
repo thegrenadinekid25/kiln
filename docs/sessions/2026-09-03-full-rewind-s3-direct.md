@@ -1,7 +1,142 @@
 # Full daily rewind: S3-direct download + launch checklist
 
-Status as of 2026-09-04, ~03:50 UTC. Picks up from the git-history-rewrite /
-public-launch session (2026-08-31 doc). Troth request: `cf024cf9`.
+Troth request: `cf024cf9`. Picks up from the git-history-rewrite /
+public-launch session (2026-08-31 doc).
+
+---
+
+# ⛔ RESUME HERE (paused 2026-09-08, blocked on AWS account)
+
+**One-line state**: the 26-year rewind ran to ~95%+ (likely 100%) on an
+8-node AWS fleet, all output is in an S3 bucket, and then the AWS account
+ran out of free credits — API access was cut off and the fleet was stopped
+mid-flight. Nothing is lost; it is locked behind the account. **Get the
+account reinstated, then follow "First moves when access returns" below.**
+
+## What is where
+
+| Thing | Value |
+|---|---|
+| AWS account | `363476363325` (alias `thegrenadinekid25`), region `us-west-2` |
+| Staged output (THE ASSET) | `s3://kiln-rewind-staging-363476363325/tiles/` |
+| Per-node done-logs | `s3://kiln-rewind-staging-363476363325/work/<hostname>/backfill_done.txt` |
+| AWS creds | Doppler `kiln` / `dev_personal` -> `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
+| Earthdata token | Doppler `kiln` / `prd` -> `EARTHDATA_TOKEN` (valid to 2026-10-30) |
+| SSH key + fleet scripts | `/Volumes/tortoise/projects-local/.kiln-infra/` (outside git, key is `chmod 600`) |
+| IAM user | `kiln-rewind-cli` (EC2FullAccess, ServiceQuotasFullAccess, inline `kiln-rewind-fleet-setup`) |
+| Fleet role/profile | `kiln-rewind-fleet-node` (trusts ec2, inline `kiln-rewind-fleet-s3-access` scoped to the bucket) |
+| Security group | `sg-05aa925a3548cf631` (SSH 22; several home IPs allowlisted) |
+| Key pair | `kiln-bench` |
+| Budget guard | `kiln-rewind-hard-cap`, $50/mo, email alerts at 50% / 100% |
+| Instance IDs | `i-01a70c14cdfd8505e i-02eb5308b9ee9e77d i-06f365e70d28f4455 i-0b3939040bb34a38b i-04eed948b5b065c1e i-037218dcd6931d7f1 i-0e5329e1f385a81e1 i-09fa13adb4d2dac69` |
+
+Every AWS call this session was made as
+`doppler run --project kiln --config dev_personal -- aws ...`.
+
+## How far it actually got
+
+Last verified reading, **2026-09-08 16:39 UTC**: **9,197 / 9,690 days
+succeeded (94.9%)**, counted properly (see the `wc -l` gotcha below). Two of
+eight nodes had already finished their slices and exited cleanly. The other
+six were running at ~230-290 days/hour with ~493 days left between them,
+which extrapolates to **completion around 18:30 UTC** — and the credentials
+were dead by 18:38 UTC. So the job plausibly finished, but **that is an
+extrapolation, not a verified fact.** Verify against the done-logs in S3.
+
+| Slice | Node IP | Slice days | Succeeded @16:39 | Est. remaining |
+|---|---|---|---|---|
+| 2000-02-24..2003-06-19 | 54.212.149.150 | 1212 | 1172 | 0 — **finished**, 40 permanent failures |
+| 2003-06-20..2006-10-13 | 52.88.193.98 | 1212 | 1147 | ~65 |
+| 2006-10-14..2010-02-05 | 54.202.227.185 | 1211 | 1054 | ~157 |
+| 2010-02-06..2013-05-31 | 50.112.162.184 | 1211 | 1098 | ~113 |
+| 2013-06-01..2016-09-23 | 35.93.3.247 | 1211 | 1210 | 0 — **finished** |
+| 2016-09-24..2020-01-17 | 34.211.131.93 | 1211 | 1138 | ~73 |
+| 2020-01-18..2023-05-12 | 18.246.70.1 | 1211 | 1196 | ~15 |
+| 2023-05-13..2026-09-04 | 44.248.129.33 | 1211 | 1182 | ~29 |
+
+The 40 permanent failures on the first slice are **real NASA archive gaps**
+in Terra's first year (`CMR returned no daytime MOD11_L2 granules for
+<date>`), not bugs. Expect a scattering of these across the record; they can
+never succeed no matter how many times they are retried.
+
+## First moves when access returns
+
+**1. Confirm credentials, then immediately de-risk the asset.** The single
+most important action is getting the S3 output onto the SSD so the work no
+longer depends on the AWS account at all:
+
+```bash
+doppler run --project kiln --config dev_personal -- aws sts get-caller-identity
+mkdir -p /Volumes/tortoise/kiln-rewind-staging
+doppler run --project kiln --config dev_personal -- aws s3 sync \
+  s3://kiln-rewind-staging-363476363325/ /Volumes/tortoise/kiln-rewind-staging/ \
+  --region us-west-2
+du -sh /Volumes/tortoise/kiln-rewind-staging
+```
+
+**2. Compute what is actually still pending** from the synced done-logs —
+do not trust the estimate table above, it is only a fallback:
+
+```bash
+cd /Volumes/tortoise/projects-local/kiln/scan
+.venv/bin/python - <<'PY'
+from datetime import date, timedelta
+from pathlib import Path
+from kiln_scan.backfill import parse_backfill_log
+
+root = Path('/Volumes/tortoise/kiln-rewind-staging/work')
+done = set()
+for log in root.glob('*/backfill_done.txt'):
+    done |= parse_backfill_log(log.read_text().splitlines())
+
+start, end = date(2000, 2, 24), date(2026, 9, 4)
+alld = {start + timedelta(days=i) for i in range((end - start).days + 1)}
+missing = sorted(alld - done)
+print(f'done={len(done)} missing={len(missing)}')
+for d in missing[:40]:
+    print(' ', d.isoformat())
+PY
+```
+
+**3. Finish whatever is left.** If it is small (tens to a few hundred days),
+either is fine:
+
+- *Locally, no AWS needed* — `--s3-direct` self-disables outside `us-west-2`
+  and falls back to HTTPS. Budget ~6-7 min/day with 3 workers on this
+  machine (8 GB RAM is the limit on concurrency; do not exceed ~3).
+- *One `us-west-2` instance* — ~2 min/day, but re-provisioning is only worth
+  it for a few hundred days or more. Reuse `.kiln-infra/deploy_node.sh`.
+
+**4. Then tear the fleet down** (commands in the teardown section below) and
+**5.** build the Supabase batch importer, which was never started.
+
+## Gotchas that cost real time this session — read before touching the fleet
+
+- **`ssh -n` silently breaks heredoc piping.** `-n` redirects the remote
+  stdin from `/dev/null`, so `ssh -n host bash -s <<'EOF'` sends the script
+  nowhere and you get zero output with exit code 0. Use `< /dev/null` on the
+  *outer* command instead when looping.
+- **`pgrep -f <pattern>` self-matches.** Run over SSH, your own command line
+  contains the pattern, so it always reports "found". Use the bracket trick:
+  `ps aux | grep '[k]iln_scan rewind'`.
+- **A home IP is not stable.** The SG is scoped to specific IPs; when the IP
+  changes, SSH fails as a *connection timeout*, which looks exactly like a
+  dead instance. Check `curl -s https://checkip.amazonaws.com` first, always.
+- **`wc -l` on a done-log overcounts.** Failed attempts and their later
+  retries are separate lines. For true counts use
+  `kiln_scan.backfill.parse_backfill_log`, which dedupes to succeeded dates.
+- **`doppler run -- aws ... $VAR` mangles unquoted word-splitting.** Pass
+  multi-value args (like `--instance-ids`) explicitly, not via a variable.
+- **New AWS accounts are restricted to Free-Tier instance types**, and
+  `run-instances --dry-run` does *not* catch it — dry-run reports success and
+  the real launch then fails `InvalidParameterCombination`. This is not a
+  Service Quotas limit (that quota was already 32 vCPUs); a quota increase
+  request is the wrong lever entirely.
+- **Credit exhaustion looks like a security incident.** Every API call fails
+  `InvalidClientTokenId` / `AuthFailure`, and instances become unreachable —
+  indistinguishable from a suspension until you check billing.
+
+---
 
 ## Where things stand
 
